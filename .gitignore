@@ -1,0 +1,8 @@
+.DS_Store
+
+data/
+workspace/
+env-data/
+env-workspace/
+
+tmp-config.json

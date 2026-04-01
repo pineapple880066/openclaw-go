@@ -1,0 +1,15 @@
+{
+    "data_dir": "./data",
+    "agents":{
+        "defaults":{
+            "workspace": "./workspace",
+            "provider":  "openai",
+            "model":     "gpt-4o-mini",
+            "max_turns": 12
+        }
+    },
+    "gateway": {
+        "host": "127.0.0.1",
+        "port": 19090
+    }
+}
