@@ -40,6 +40,7 @@ func init(){
 	rootCmd.AddCommand(versionCmd())
 	rootCmd.AddCommand(configCmd())
 	rootCmd.AddCommand(agentCmd())
+	rootCmd.AddCommand(sessionCmd())
 }
 
 func versionCmd() *cobra.Command {

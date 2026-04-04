@@ -25,8 +25,7 @@ type AgentRepository interface {
 type SessionRepository interface {
 	CreateSession(ctx context.Context, session Session) (Session, error)
 	GetSession(ctx context.Context, id string) (Session, error)
-	ListSessionByAgent(ctx context.Context, agentID string) ([]Session, error)
-
+	ListSessionsByAgent(ctx context.Context, agentID string) ([]Session, error)
 }
 
 type MessageRepository interface {

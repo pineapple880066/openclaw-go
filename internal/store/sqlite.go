@@ -259,7 +259,7 @@ func (s *SQLiteStore) CreateSession(ctx context.Context, session Session) (Sessi
 func (s *SQLiteStore) GetSession(ctx context.Context, id string) (Session, error) {
 	row := s.db.QueryRowContext(
 		ctx,
-		`SELECT id, agent_id, peer_id, title, created_at, updated_at
+		`SELECT id, agent_id, channel, peer_id, title, created_at, updated_at
 		FROM sessions
 		WHERE id = ?`,
 		id,
