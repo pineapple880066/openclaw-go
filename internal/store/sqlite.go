@@ -155,6 +155,7 @@ func (s *SQLiteStore) CreateAgent(ctx context.Context, agent Agent) (Agent, erro
 		agent.Name,
 		agent.SystemPrompt,
 		agent.Provider,
+		agent.Model,
 		agent.Workspace,
 		agent.CreatedAt.Format(time.RFC3339Nano),
 		agent.UpdatedAt.Format(time.RFC3339Nano),
@@ -171,7 +172,7 @@ func (s *SQLiteStore) GetAgent(ctx context.Context, id string) (Agent, error) {
 	// 如果查不到，会在scan的时候返回 sql.ErrNoRows
 	row := s.db.QueryRowContext(
 		ctx,
-		`SELECT id, name, system_prompt, provider, model, workspace, created_at, updated_at,
+		`SELECT id, name, system_prompt, provider, model, workspace, created_at, updated_at
 		FROM agents
 		WHERE id = ?`,
 		id,

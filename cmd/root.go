@@ -39,6 +39,7 @@ func init(){
 	// 子命令
 	rootCmd.AddCommand(versionCmd())
 	rootCmd.AddCommand(configCmd())
+	rootCmd.AddCommand(agentCmd())
 }
 
 func versionCmd() *cobra.Command {

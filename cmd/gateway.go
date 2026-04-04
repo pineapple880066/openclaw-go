@@ -5,19 +5,18 @@ import (
 	"log/slog" // 日志
 	"os" // 操作系用接口
 	"strings" // 处理日志字符串
-
-	"openclaw-go/internal/config"
 )
 
 // runGateway 先只做“假的启动骨架”。
 
-func runGateway(){
-	// verbose 来自 root.go 的全局 flag。
+func runGateway() {
+	// 先根据 --verbose 决定默认日志级别。
 	logLevel := slog.LevelInfo
 	if verbose {
 		logLevel = slog.LevelDebug
 	}
 
+	// 再允许环境变量覆盖日志级别。
 	if lvl := os.Getenv("OPENCLAW_GO_LOG_LEVEL"); lvl != "" {
 		switch strings.ToLower(lvl) {
 		case "debug":
@@ -31,60 +30,54 @@ func runGateway(){
 		}
 	}
 
-	// slog 设置为默认 logger
-	// 其他地方可以直接调用 slog.Info(...)
+	// 先把默认 logger 装起来。
 	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: logLevel,
 	})
 	slog.SetDefault(slog.New(handler))
 
-	// 解析配置路径
-	cfgPath := resolveConfigPath()
-
-	// 从配置文件里拿到配置值
-	cfg, err := config.Load(cfgPath)
+	// 调统一 helper，把配置和路径一次准备好。
+	cfg, paths, err := prepareRuntimeConfig()
 	if err != nil {
-		slog.Error("filed to load config", "path", cfgPath, "error", err)
-		os.Exit(1) // 取失败
-	}
-
-	// workspace里的 “～” 去掉,展开
-	workspace := cfg.WorkspacePath()
-
-	// 标准化之后的路径写回默认配置
-	cfg.Agents.Defaults.Workspace = workspace
-
-	dataDir := cfg.ResolveDataDir()
-
-	cfg.DataDir = dataDir
-
-	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		slog.Error("failed to create data dir", "dataDir", dataDir, "error", err)
-		os.Exit(1)
-	}
-	
-
-	if err := os.MkdirAll(workspace, 0755); err != nil {
-		slog.Error("failed to create workspace", "workspace", workspace, "error", err)
+		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
 
-	// 生成cfg被读进来的日志，默认值生效
+	// 启动前先确保两个运行目录存在。
+	if err := os.MkdirAll(paths.DataDir, 0755); err != nil {
+		slog.Error("failed to create data dir", "dataDir", paths.DataDir, "error", err)
+		os.Exit(1)
+	}
+
+	if err := os.MkdirAll(paths.Workspace, 0755); err != nil {
+		slog.Error("failed to create workspace", "workspace", paths.Workspace, "error", err)
+		os.Exit(1)
+	}
+
+	// 这里是真正把 SQLite store 接进来。
+	// 到这一步，gateway 启动时已经会把数据库地基准备好。
+	repo, err := openSQLiteRepo(paths)
+	if err != nil {
+		slog.Error("failed to open sqlite store", "sqlitePath", paths.SQLitePath, "error", err)
+		os.Exit(1)
+	}
+	defer repo.Close()
+
+	// 这条日志现在不只是“配置读到了”，
+	// 还表示“运行时目录和 sqlite store 都准备好了”。
 	slog.Info(
 		"gateway skeleton starting",
-		"config", cfgPath,
+		"config", paths.ConfigPath,
 		"host", cfg.Gateway.Host,
 		"port", cfg.Gateway.Port,
 		"workspace", cfg.Agents.Defaults.Workspace,
 		"provider", cfg.Agents.Defaults.Provider,
 		"model", cfg.Agents.Defaults.Model,
 		"maxTurns", cfg.Agents.Defaults.MaxTurns,
-		"dataDir", dataDir,
+		"dataDir", paths.DataDir,
+		"sqlitePath", paths.SQLitePath,
 	)
 
-
-	// 输出测试
-	slog.Info("config loaded sucessfully; gateway bootstrap is still TODO")
+	slog.Info("config loaded successfully; sqlite store is ready; gateway bootstrap is still TODO")
 	fmt.Println()
-
 }

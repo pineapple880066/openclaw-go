@@ -4,8 +4,8 @@
 
 - 参考项目：`/Users/pineapple/Desktop/OpenClaw_go/goclaw`
 - 重写项目：`/Users/pineapple/Desktop/OpenClaw_go/openlaw-go`
-- 记录时间：2026-03-30
-- 当前状态：已完成配置读取与运行目录最小闭环
+- 记录时间：2026-04-02
+- 当前状态：已完成 store/sqlite 最小骨架，当前暂停重写，转去验证参考项目 goclaw
 
 ## 当前判断
 
@@ -43,8 +43,8 @@
 ## 当前步
 
 - 当前阶段：阶段 2
-- 当前步骤：2.5 抽出通用路径标准化 helper
-- 当前目标：减少 `cmd/gateway.go` 中重复的路径处理逻辑，为后续更多目录字段做准备
+- 当前步骤：阶段 8 起步，完成 `internal/store/sqlite.go` 最小骨架
+- 当前目标：为后续 agent / sessions / telegram 提供持久化地基
 
 ## 本步对应 goclaw 源码
 
@@ -83,6 +83,7 @@
 ## 当前备注
 
 - 已完成最小 CLI 骨架
-- 已完成 `config.go`、`load.go`、`ExpandHome()`、`WorkspacePath()`、`ResolvedDataDir()`
-- 已验证 `go run .` 会读取 `config.json` 并打印标准化后的绝对 `workspace` 与 `dataDir`
-- 下一步应抽出通用路径标准化 helper，减少 `cmd/gateway.go` 重复代码
+- 已完成 `config` 模块最小闭环
+- 已完成 `internal/store/models.go`、`interfaces.go`、`sqlite.go` 最小骨架
+- 2026-04-02 这一天主要完成了 `sqlite.go`
+- 当前暂停继续手写，先验证参考项目 `/Users/pineapple/Desktop/OpenClaw_go/goclaw` 是否能在本机编译运行
