@@ -6,7 +6,7 @@ import (
 )
 
 func (c *Config) applyEnvOverrides() {
-
+	// 优先级: env > config.json > default()
 	envStr := func(key string, dst *string) {
 		if v := os.Getenv(key); v != "" {
 			*dst = v
@@ -23,6 +23,16 @@ func (c *Config) applyEnvOverrides() {
 
 	// 网关监听地址
 	envStr("OPENCLAW_GO_HOST", &c.Gateway.Host)
+
+	// provider 配置：OpenAI
+	envStr("OPENCLAW_GO_OPENAI_API_KEY", &c.Providers.OpenAI.APIKey)
+	envStr("OPENCLAW_GO_OPENAI_API_BASE", &c.Providers.OpenAI.APIBase)
+	envStr("OPENCLAW_GO_OPENAI_CHAT_PATH", &c.Providers.OpenAI.ChatPath)
+
+	// provider 配置：MiniMax
+	envStr("OPENCLAW_GO_MINIMAX_API_KEY", &c.Providers.MiniMax.APIKey)
+	envStr("OPENCLAW_GO_MINIMAX_API_BASE", &c.Providers.MiniMax.APIBase)
+	envStr("OPENCLAW_GO_MINIMAX_CHAT_PATH", &c.Providers.MiniMax.ChatPath)
 
 	// 端口是 int 
 	if v := os.Getenv("OPENCLAW_GO_PORT"); v != "" {

@@ -1,58 +1,90 @@
 package config
 
-// 配置数据结构
-// 把json，yaml， env读进这个结构
 
-// config 结构体
+// 你可以把它理解成：程序启动时所有全局配置最终都会收敛到这里。
 type Config struct {
-	DataDir string `json:"data_dir"` // 数据目录 ， sqllite/ cache / 快照
-	Agents  AgentsConfig  `json:"agents"`
+	// Config 是当前项目的根配置
+	DataDir string `json:"data_dir"`
+	// 数据目录 sqlite
+	Agents AgentsConfig `json:"agents"`
 	Gateway GatewayConfig `json:"gateway"`
+	Providers ProvidersConfig `json:"providers"`
 }
 
 
-// defaults 默认配置项
 type AgentsConfig struct {
+	// AgentsConfig 目前先只保留 defaults
 	Defaults AgentDefaults `json:"defaults"`
 }
 
-// - Workspace：agent 默认工作目录
-// - Provider：未来默认 LLM 提供商
-// - Model：未来默认模型
-// - MaxTurns：先给自己留一个“回合 / 迭代上限”的入口
+// 默认配置
 type AgentDefaults struct {
 	Workspace string `json:"workspace"`
-	Provider  string `json:"provider"`
-	Model     string `json:"model"`
-	MaxTurns  int `json:"max_turns"`
+	// 默认工作目录
+
+	// Provider / Model 决定用哪个 LLM
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+
+	// MaxTurns 作为最小单轮执行执行次数上限
+	MaxTurns int `json:"max_turns"`
 }
 
-// GatewayConfig 表示网关本身的监听配置。
-// - Host：监听地址
-// - Port：监听端口
 type GatewayConfig struct {
+	// 程序的监听地址
 	Host string `json:"host"`
-	Port int	`json:"port"`
+	Port int    `json:"port"`
 }
 
-// Default 返回一份“程序即使没写 config.json 也能启动”的默认配置。
+type ProvidersConfig struct {
+	OpenAI  ProviderConfig `json:"openai"`
+	MiniMax ProviderConfig `json:"minimax"`
+}
+
+type ProviderConfig struct {
+	// 鉴权， 基础URL， 聊天路径接口
+	APIKey 		string `json:"api_key"`
+	APIBase 	string `json:"api_base"`
+	ChatPath	string `json:"chat_path"`
+}
+
+
 func Default() Config {
+	// Default 返回一份“没写 config.json 也能启动”的默认配置
 	return Config{
 		DataDir: "~/.openclaw/data",
+
 		Agents: AgentsConfig{
 			Defaults: AgentDefaults{
-				Workspace:".", // 简单粗暴
-
-				// 模型提供商
-				Provider: "openai",
-				Model:	  "gpt-40-mini",
-
-				MaxTurns: 8, // 最大调用次数
+				Workspace: ".", // 当前项目阶段先用当前目录，最容易理解。
+				Provider:  "openai",
+				Model:     "gpt-4o-mini",
+				MaxTurns:  8,
 			},
 		},
+
 		Gateway: GatewayConfig{
-			Host: "127.0.0.1", // 本地监听
+			Host: "127.0.0.1",
 			Port: 18080,
+		},
+
+		Providers: ProvidersConfig{
+			OpenAI: ProviderConfig{
+				// OpenAI 兼容接口默认基址。
+				APIBase: "https://api.openai.com/v1",
+
+				// OpenAI 标准聊天路径。
+				ChatPath: "/chat/completions",
+			},
+			MiniMax: ProviderConfig{
+				// 这里优先给你国内站的默认地址。
+				// 如果你以后用国际站，再通过 env 覆盖掉。
+				APIBase: "https://api.minimaxi.com/v1",
+
+				// 这个路径是参考 goclaw 对 MiniMax 的接法。
+				ChatPath: "/text/chatcompletion_v2",
+			},
 		},
 	}
 }
+
