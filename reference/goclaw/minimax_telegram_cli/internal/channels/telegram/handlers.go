@@ -45,6 +45,20 @@ import (
 
 // handleMessage processes an incoming Telegram update.
 func (c *Channel) handleMessage(ctx context.Context, update telego.Update) {
+	// handleMessage 是 Telegram 入站主链第一入口。
+	//
+	// 你读这一个函数时，先不要陷进所有细节里，
+	// 先抓它的“筛选顺序”：
+	//
+	// 1. 先排除无意义 update / service message
+	// 2. 再抽取 text / caption / sender / chat 等基础信息
+	// 3. 判断 group / dm / forum topic 这些上下文
+	// 4. 先处理命令型消息
+	// 5. 再处理 mention gate / pairing / pending history
+	// 6. 最后把真正要进 agent loop 的消息送进后续链路
+	//
+	// 所以这份文件的价值在于：
+	// 它定义了“什么消息值得进入 AI 系统，什么消息应该在 Telegram 层就被拦住”。
 	message := update.Message
 	if message == nil {
 		return

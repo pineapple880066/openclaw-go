@@ -55,6 +55,24 @@ func loopbackAddr(host string, port int) string {
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
+// registerProviders 是“配置文件里的 provider -> 运行时 registry”的第一层入口。
+//
+// 你读它的时候，目标不是背下所有 provider，
+// 而是看清楚它的统一模式：
+//
+// 1. 判断某个 provider 的配置是否可用
+// 2. 构造一个具体 Provider 实例
+// 3. 注册到 registry
+// 4. 打一条启动日志
+//
+// 对你最关键的是 MiniMax 那一段：
+//
+// - 它调用的还是 NewOpenAIProvider(...)
+// - 然后额外接了 WithChatPath("/text/chatcompletion_v2")
+//
+// 这说明 MiniMax 在 goclaw 里的定位是：
+// “OpenAI-compatible provider 的一个具体实例配置”，
+// 而不是全新的 provider 类型。
 func registerProviders(registry *providers.Registry, cfg *config.Config) {
 	if cfg.Providers.Anthropic.APIKey != "" {
 		registry.Register(providers.NewAnthropicProvider(cfg.Providers.Anthropic.APIKey,
@@ -205,6 +223,10 @@ func registerProviders(registry *providers.Registry, cfg *config.Config) {
 
 // buildMCPServerLookup creates an MCPServerLookup from an MCPServerStore.
 // Returns nil if mcpStore is nil.
+//
+// 这段和 MiniMax / Telegram 主线关系不大。
+// 它主要服务 Claude CLI / ACP 那类需要按 agent 注入 MCP server 的 provider。
+// 第一次阅读时可以先略过，知道它是“从 store 读 MCP 配置再转给 provider”的桥就够了。
 func buildMCPServerLookup(mcpStore store.MCPServerStore) providers.MCPServerLookup {
 	if mcpStore == nil {
 		return nil
@@ -269,6 +291,20 @@ func jsonToStringMap(data json.RawMessage) map[string]string {
 // gatewayAddr is used to inject GoClaw MCP bridge for Claude CLI providers.
 // mcpStore is optional; when provided, per-agent MCP servers are injected into CLI config.
 // cfg provides fallback api_base values from config/env when DB providers have none set.
+//
+// 这和 registerProviders(...) 的差别在于“来源不同”：
+//
+// - registerProviders：来源是 config.json / env
+// - registerProvidersFromDB：来源是数据库
+//
+// 但它们最终目标一样：
+// 都是把 provider 实例塞进同一个 Registry。
+//
+// 所以你后面设计 openlaw-go 时，也应该记住这个分层：
+//
+// - provider 实现层
+// - provider 注册层
+// - provider 配置来源层
 func registerProvidersFromDB(registry *providers.Registry, provStore store.ProviderStore, secretStore store.ConfigSecretsStore, gatewayAddr, gatewayToken string, mcpStore store.MCPServerStore, cfg *config.Config) {
 	dbProviders, err := provStore.ListAllProviders(context.Background())
 	if err != nil {

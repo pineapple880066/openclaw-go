@@ -95,6 +95,83 @@ MiniMax 在 `goclaw` 里不是单独的 `minimax.go`。
 5. `internal/channels/telegram/stream.go`
 6. `internal/channels/telegram/commands.go`
 
+## 一分钟阅读地图
+
+如果你今天只想先抓主链，不想一下看几千行，按这个顺序最有效：
+
+1. `cmd/root.go`
+只看：CLI 是怎么把默认执行流导向 `runGateway()` 的。
+
+2. `cmd/gateway_providers.go`
+只看：MiniMax 是怎么注册到 provider registry 的。
+
+3. `internal/providers/openai.go`
+只看 5 个函数：
+- `NewOpenAIProvider`
+- `WithChatPath`
+- `Chat`
+- `buildRequestBody`
+- `parseResponse`
+
+4. `internal/channels/telegram/factory.go`
+只看：数据库里的 telegram 实例配置怎么变成真正的 `Channel` 对象。
+
+5. `internal/channels/telegram/channel.go`
+只看：
+- `Channel` 结构体
+- `New`
+- `Start`
+- `Stop`
+
+6. `internal/channels/telegram/handlers.go`
+只看：一条 Telegram 入站消息进来后，主处理链怎么往下走。
+
+7. `internal/channels/telegram/send.go`
+只看：系统怎么把一条出站消息发回 Telegram。
+
+8. `internal/channels/telegram/stream.go`
+只看：流式输出在 Telegram 里怎么落地。
+
+## 你读的时候要问自己的问题
+
+读 provider 时，重点问：
+
+- provider 实例是在哪里创建的？
+- base URL / model / chat path 是在哪里定下来的？
+- HTTP 请求体是在哪里组出来的？
+- provider 返回的数据是在哪里解析成内部 `ChatResponse` 的？
+
+读 Telegram 时，重点问：
+
+- 这个 channel 在运行时持有哪些状态？
+- 一条 update 进来后，第一层入口是哪个函数？
+- mention、group、topic、stream、reaction 分别在哪些文件处理？
+- 回复消息最终是哪个函数真正发给 Telegram API 的？
+
+## 当前最值得优先看的 8 个函数
+
+### CLI / Provider
+
+- `cmd/root.go -> init`
+- `cmd/gateway.go -> runGateway`
+- `cmd/gateway_providers.go -> registerProviders`
+- `internal/providers/openai.go -> NewOpenAIProvider`
+- `internal/providers/openai.go -> Chat`
+- `internal/providers/openai.go -> buildRequestBody`
+- `internal/providers/openai.go -> doRequest`
+- `internal/providers/openai.go -> parseResponse`
+
+### Telegram
+
+- `internal/channels/telegram/factory.go -> buildChannel`
+- `internal/channels/telegram/channel.go -> New`
+- `internal/channels/telegram/channel.go -> Start`
+- `internal/channels/telegram/handlers.go -> handleMessage`
+- `internal/channels/telegram/send.go -> Send`
+- `internal/channels/telegram/send.go -> sendMediaMessage`
+- `internal/channels/telegram/stream.go -> CreateStream`
+- `internal/channels/telegram/stream.go -> FinalizeStream`
+
 ## 你接下来怎么用这份目录
 
 推荐分 2 种用法：

@@ -60,6 +60,22 @@ type OpenAIProvider struct {
 	retryConfig  RetryConfig
 }
 
+// NewOpenAIProvider 是“构造通用 OpenAI-compatible provider 实例”的入口。
+//
+// 你可以把它理解成：
+//
+// - name：这个 provider 在 registry 里的名字
+// - apiKey：鉴权凭据
+// - apiBase：基础 URL
+// - defaultModel：默认模型名
+//
+// 注意这里还没有出现 MiniMax 专属逻辑。
+// MiniMax 的差异不是在这里写死的，而是后面靠：
+//
+// - WithChatPath(...)
+// - 注册时传入的 base URL / default model
+//
+// 也正因为这样，goclaw 才能用一套 OpenAI-compatible provider 复用很多厂商。
 func NewOpenAIProvider(name, apiKey, apiBase, defaultModel string) *OpenAIProvider {
 	if apiBase == "" {
 		apiBase = "https://api.openai.com/v1"
@@ -78,6 +94,14 @@ func NewOpenAIProvider(name, apiKey, apiBase, defaultModel string) *OpenAIProvid
 }
 
 // WithChatPath returns a copy with a custom chat completions path (e.g. "/text/chatcompletion_v2" for MiniMax native API).
+//
+// 这就是 MiniMax 真正和普通 OpenAI 路径拉开差异的位置之一。
+// 也就是说：
+//
+// - OpenAI 默认走 /chat/completions
+// - MiniMax 在注册时把路径切到 /text/chatcompletion_v2
+//
+// 所以后面你读 gateway_providers.go 时，一定要把那一行和这个函数连起来看。
 func (p *OpenAIProvider) WithChatPath(path string) *OpenAIProvider {
 	p.chatPath = path
 	return p
@@ -109,6 +133,21 @@ func (p *OpenAIProvider) resolveModel(model string) string {
 	return model
 }
 
+// Chat 是“非流式请求”的总入口。
+//
+// 它内部真正做的事是 4 步：
+//
+// 1. 先决定最终要用哪个 model
+// 2. 再把内部 ChatRequest 组装成 provider 的 HTTP 请求体
+// 3. 调用带重试的 request 执行逻辑
+// 4. 最后把 provider 的响应解析成内部 ChatResponse
+//
+// 所以你如果想快速理解 provider 主链，
+// 先看 Chat，然后顺着跳去：
+//
+// - buildRequestBody
+// - doRequest
+// - parseResponse
 func (p *OpenAIProvider) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	model := p.resolveModel(req.Model)
 	body := p.buildRequestBody(model, req, false)
@@ -130,6 +169,14 @@ func (p *OpenAIProvider) Chat(ctx context.Context, req ChatRequest) (*ChatRespon
 
 // chatRequestFn returns a closure that performs a single non-streaming chat request.
 // Shared between initial attempt and post-clamp retry to avoid duplication.
+//
+// 这层 closure 的意义是：
+//
+// RetryDo 需要一个“可以被重复调用”的函数。
+// 所以 goclaw 把一次真实请求封装成闭包，这样：
+//
+// - 第一次失败可以重试
+// - max_tokens 被自动收缩后还能再跑一次
 func (p *OpenAIProvider) chatRequestFn(ctx context.Context, body map[string]any) func() (*ChatResponse, error) {
 	return func() (*ChatResponse, error) {
 		respBody, err := p.doRequest(ctx, body)
@@ -147,6 +194,19 @@ func (p *OpenAIProvider) chatRequestFn(ctx context.Context, body map[string]any)
 	}
 }
 
+// ChatStream 是“流式请求”的总入口。
+//
+// 它和 Chat 的差别不是只有 stream=true 这么简单，
+// 还包括：
+//
+// - SSE 的读取
+// - chunk 的拼接
+// - tool call 的累计
+// - thinking / reasoning 内容的累计
+// - usage 的最终收集
+//
+// 所以如果你只想先弄懂“最小请求是怎么发出去的”，
+// 可以先只读 Chat，不急着先吞下 ChatStream。
 func (p *OpenAIProvider) ChatStream(ctx context.Context, req ChatRequest, onChunk func(StreamChunk)) (*ChatResponse, error) {
 	model := p.resolveModel(req.Model)
 	body := p.buildRequestBody(model, req, true)
@@ -283,6 +343,21 @@ func (p *OpenAIProvider) ChatStream(ctx context.Context, req ChatRequest, onChun
 	return result, nil
 }
 
+// buildRequestBody 是整个 provider 最值得精读的函数之一。
+//
+// 因为内部 `ChatRequest` 和外部 OpenAI-compatible HTTP JSON
+// 不是一一对应的，必须在这里做“协议翻译”。
+//
+// 它负责的事包括：
+//
+// - 把内部 Message 转成 OpenAI wire format
+// - 处理 tool_calls
+// - 处理 image 输入
+// - 处理 reasoning / thinking 相关字段
+// - 处理 stream_options
+// - 把统一 Options 翻译成不同 provider 需要的字段
+//
+// 你要真正看懂 provider，是绕不开这一个函数的。
 func (p *OpenAIProvider) buildRequestBody(model string, req ChatRequest, stream bool) map[string]any {
 	// Gemini 2.5+: collapse tool_call cycles missing thought_signature.
 	// Gemini requires thought_signature echoed back on every tool_call; models that
@@ -432,6 +507,18 @@ func (p *OpenAIProvider) buildRequestBody(model string, req ChatRequest, stream 
 	return body
 }
 
+// doRequest 负责真正把 HTTP 请求发出去。
+//
+// 这层只做传输层相关的事：
+//
+// - JSON 编码
+// - 组 URL
+// - 设置请求头
+// - 发请求
+// - 处理非 200 错误
+//
+// 它不负责解释响应语义。
+// 响应语义留给 parseResponse。
 func (p *OpenAIProvider) doRequest(ctx context.Context, body any) (io.ReadCloser, error) {
 	data, err := json.Marshal(body)
 	if err != nil {
@@ -470,6 +557,16 @@ func (p *OpenAIProvider) doRequest(ctx context.Context, body any) (io.ReadCloser
 	return resp.Body, nil
 }
 
+// parseResponse 负责把 OpenAI-compatible 响应结构翻译回内部 ChatResponse。
+//
+// 注意它做的不是“简单读 content”而已，还包括：
+//
+// - reasoning_content -> Thinking
+// - tool_calls -> []ToolCall
+// - usage -> Usage
+// - finish_reason 的规范化
+//
+// 所以 provider 的“返回值长什么样”，真正是在这里统一下来的。
 func (p *OpenAIProvider) parseResponse(resp *openAIResponse) *ChatResponse {
 	result := &ChatResponse{FinishReason: "stop"}
 

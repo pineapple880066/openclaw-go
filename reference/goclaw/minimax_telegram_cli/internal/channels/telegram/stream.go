@@ -119,6 +119,15 @@ type DraftStream struct {
 // NewDraftStream creates a new streaming preview manager.
 // When useDraft is true, the stream will attempt to use sendMessageDraft (Bot API 9.3+)
 // and automatically fall back to sendMessage+editMessageText if the API rejects it.
+//
+// NewDraftStream 是 Telegram 流式输出对象的构造入口。
+//
+// 这个对象的意义不是“保存所有最终结果”，
+// 而是充当一层中间缓冲：
+//
+// - LLM chunk 持续进来
+// - DraftStream 节流聚合
+// - 再以编辑消息 / 草稿的方式逐步刷新 Telegram 端显示
 func NewDraftStream(bot *telego.Bot, chatID int64, throttleMs int, messageThreadID int, useDraft bool) *DraftStream {
 	throttle := defaultStreamThrottle
 	if throttleMs > 0 {
@@ -141,6 +150,11 @@ func NewDraftStream(bot *telego.Bot, chatID int64, throttleMs int, messageThread
 // Update sends or edits the streaming message with the latest text.
 // Throttled to avoid hitting Telegram rate limits.
 func (ds *DraftStream) Update(ctx context.Context, text string) {
+	// Update 只负责“把最新文本塞进缓冲并安排刷新”，
+	// 它自己不保证每次都立刻发请求。
+	//
+	// 这是 Telegram 流式输出里很关键的节流点：
+	// 不然模型每吐一个小 chunk 就调一次 API，会非常抖也非常浪费请求。
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
@@ -177,6 +191,11 @@ func (ds *DraftStream) Flush(ctx context.Context) error {
 
 // flush sends/edits the pending text (must hold mu lock).
 func (ds *DraftStream) flush(ctx context.Context) error {
+	// flush 才是真正把缓冲内容推到 Telegram API 的地方。
+	//
+	// 也就是说：
+	// Update 是“写入最新状态”，
+	// flush 是“把最新状态落到 Telegram”。
 	if ds.pending == "" || ds.pending == ds.lastText {
 		return nil
 	}
@@ -311,6 +330,13 @@ func (ds *DraftStream) UsedDraftTransport() bool {
 // For groups: deletes the placeholder and lets the stream create its own message,
 // since group placeholders drift away as other messages arrive.
 func (c *Channel) CreateStream(ctx context.Context, chatID string, firstStream bool) (channels.ChannelStream, error) {
+	// CreateStream 把 Telegram Channel 接入 channels.ChannelStream 统一抽象。
+	//
+	// 这意味着上层 agent/gateway 不需要知道 Telegram 是怎么实现流式输出的，
+	// 只要知道：
+	// “这个 channel 能不能给我一个 stream 对象”。
+	//
+	// 所以它是“Telegram 具体实现”和“上层统一流接口”之间的桥。
 	id, err := parseRawChatID(chatID)
 	if err != nil {
 		return nil, err
@@ -342,6 +368,16 @@ func (c *Channel) CreateStream(ctx context.Context, chatID string, firstStream b
 // Also stops any thinking animation for the chat.
 // Implements channels.StreamingChannel.
 func (c *Channel) FinalizeStream(ctx context.Context, chatID string, stream channels.ChannelStream) {
+	// FinalizeStream 负责把“流式阶段”平稳收尾到“最终消息状态”。
+	//
+	// 这一步很重要，因为流式阶段和最终消息阶段通常不是完全同一个对象语义。
+	// 如果收尾做不好，就会出现：
+	//
+	// - 重复发最终消息
+	// - 占位消息没有被接管
+	// - 最终文本和流式文本不一致
+	//
+	// 所以这一步本质上是在做“stream lifecycle 的最后一次状态移交”。
 	msgID := stream.MessageID()
 	if msgID != 0 {
 		// Hand off the stream message to Send() for final formatted edit.

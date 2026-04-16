@@ -97,6 +97,20 @@ func (c *thinkingCancel) Cancel() {
 // agentStore is optional (nil = group file writer commands disabled).
 // configPermStore is optional (nil = group file writer commands disabled).
 // teamStore is optional (nil = /tasks, /task_detail commands disabled).
+//
+// New 的职责不是“启动 bot”，而是“先把一个可运行的 Channel 对象装好”。
+//
+// 它做的事主要有：
+//
+// 1. 配置 telego bot client
+// 2. 处理 API server / proxy / IPv4 这些连接层设置
+// 3. 创建 BaseChannel
+// 4. 初始化 Telegram 特有的运行时状态
+// 5. 返回一个还没 Start 的 Channel
+//
+// 也就是说：
+// New 负责构造，
+// Start 才负责真正开始长轮询收消息。
 func New(cfg config.TelegramConfig, msgBus *bus.MessageBus, pairingSvc store.PairingStore, agentStore store.AgentStore, configPermStore store.ConfigPermissionStore, teamStore store.TeamStore, pendingStore store.PendingMessageStore) (*Channel, error) {
 	var opts []telego.BotOption
 
@@ -175,6 +189,18 @@ func New(cfg config.TelegramConfig, msgBus *bus.MessageBus, pairingSvc store.Pai
 
 // Start begins long polling for Telegram updates.
 func (c *Channel) Start(ctx context.Context) error {
+	// Start 是 Telegram 通道真正“进入运行态”的入口。
+	//
+	// 它的主链可以概括成：
+	//
+	// 1. 建立一个可取消的 polling context
+	// 2. 调 bot.UpdatesViaLongPolling(...)
+	// 3. 初始化本地运行状态（running、history flusher、handler semaphore）
+	// 4. 后台同步菜单命令
+	// 5. 起 goroutine 消费 update channel
+	//
+	// 所以以后你排查“为什么 bot 没收消息”，
+	// Start 往往就是第一入口。
 	slog.Info("starting telegram bot (polling mode)")
 
 	// Create a cancellable context for the polling goroutine.
@@ -288,6 +314,14 @@ func (c *Channel) Start(ctx context.Context) error {
 // DM streaming: uses sendMessageDraft (stealth preview) by default, falls back to
 // sendMessage+editMessageText if draft API is unavailable. Controlled by draft_transport config.
 // Group streaming: sends a new message, edits progressively, hands off to Send().
+//
+// 这个函数虽然短，但它决定了 Telegram 端最终是：
+//
+// - 普通一次性发送
+// 还是
+// - 边生成边流式更新
+//
+// 所以它是 Telegram“用户体验开关”之一。
 func (c *Channel) StreamEnabled(isGroup bool) bool {
 	if isGroup {
 		return c.config.GroupStream != nil && *c.config.GroupStream
@@ -327,6 +361,14 @@ func (c *Channel) SetPendingHistoryTenantID(id uuid.UUID) { c.groupHistory.SetTe
 
 // Stop shuts down the Telegram bot by cancelling the long polling context
 // and waiting for the polling goroutine to exit.
+// Stop 停止轮询，并等待所有 in-flight handler 收尾。
+//
+// 对这种长轮询通道来说，优雅退出很重要。
+// 否则非常容易出现：
+//
+// - 轮询已经停了，但 handler 还在处理旧消息
+// - 缓冲里的历史没有 flush
+// - 进程退出时丢掉最后一批状态
 func (c *Channel) Stop(_ context.Context) error {
 	slog.Info("stopping telegram bot")
 	c.SetRunning(false)

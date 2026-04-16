@@ -148,6 +148,20 @@ func (c *Channel) retrySend(ctx context.Context, name string, resetFn func(), fn
 // Send delivers an outbound message to a Telegram chat.
 // Supports text-only messages and messages with media attachments.
 // Reads metadata for reply-to-message and forum thread routing.
+//
+// 如果 handlers.go 代表“消息怎么进来”，
+// 那 send.go 里的 Send 就代表“消息怎么出去”。
+//
+// 它不是简单 sendText，而是会统一处理：
+//
+// - 目标 chat_id
+// - reply_to
+// - forum topic 的 thread_id
+// - HTML 文本
+// - 图片 / 视频 / 音频 / 文档
+// - 重试与网络错误恢复
+//
+// 所以 Telegram 端一切真正发回去的东西，最终都会收口到这里。
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	if !c.IsRunning() {
 		return fmt.Errorf("telegram bot not running")
@@ -300,6 +314,20 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 
 // sendMediaMessage sends a message with media attachments.
 // Ref: TS src/telegram/send.ts → sendMessageTelegram with mediaUrl
+// sendMediaMessage 处理“带媒体附件”的出站消息。
+//
+// 这层的重点不是简单调用 Bot API，
+// 而是根据媒体类型分流到：
+//
+// - sendPhoto
+// - sendVideo
+// - sendAudio
+// - sendDocument
+//
+// 也就是说：
+// Send 是总入口，
+// sendMediaMessage 是媒体分发层，
+// 后面四个 sendXxx 才是具体协议调用层。
 func (c *Channel) sendMediaMessage(ctx context.Context, chatID int64, msg bus.OutboundMessage, replyTo, threadID int) error {
 	chatIDObj := tu.ID(chatID)
 
@@ -392,6 +420,17 @@ func (c *Channel) sendHTML(ctx context.Context, chatID int64, htmlContent string
 	return c.sendHTMLWithDepth(ctx, chatID, htmlContent, replyTo, threadID, 0)
 }
 
+// sendHTMLWithDepth 是“文本消息真正发送”的核心路径之一。
+//
+// 它不是单纯 sendMessage，而是还会处理：
+//
+// - 文本过长时的拆分
+// - reply / thread 路由
+// - HTML parse mode
+// - 递归深度控制
+//
+// 所以如果你以后遇到“为什么一条长回复没完整发出去”，
+// sendHTMLWithDepth 往往就是要看的地方。
 func (c *Channel) sendHTMLWithDepth(ctx context.Context, chatID int64, htmlContent string, replyTo, threadID, depth int) error {
 	tgMsg := tu.Message(tu.ID(chatID), htmlContent)
 	tgMsg.ParseMode = telego.ModeHTML
@@ -650,6 +689,13 @@ func (c *Channel) sendDocument(ctx context.Context, chatID telego.ChatID, filePa
 
 // editMessage edits an existing message's text.
 // Uses retrySend since edits are idempotent and may fail on transient network issues.
+// editMessage 是流式输出和草稿更新的基础能力。
+//
+// Telegram 流式体验本质上依赖：
+// “先发一条消息 / 草稿，再不断 edit 它”。
+//
+// 所以 stream.go 里的很多用户可见行为，
+// 最后都会落到这里。
 func (c *Channel) editMessage(ctx context.Context, chatID int64, messageID int, htmlText string) error {
 	editMsg := tu.EditMessageText(tu.ID(chatID), messageID, htmlText)
 	editMsg.ParseMode = telego.ModeHTML
